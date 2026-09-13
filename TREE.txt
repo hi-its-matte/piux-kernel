@@ -1,0 +1,70 @@
+.
+├── bin
+│   ├── about.c
+│   ├── cat.c
+│   ├── cd.c
+│   ├── clear.c
+│   ├── commands.h
+│   ├── echo.c
+│   ├── fs.c
+│   ├── help.c
+│   ├── ls.c
+│   ├── mkdir.c
+│   ├── nano.c
+│   ├── pwm.c
+│   ├── reboot.c
+│   ├── shutdown.c
+│   ├── top.c
+│   └── touch.c
+├── boot
+│   └── bootx.asm
+├── docs
+│   └── PWM-COMMANDS.md
+├── etc
+│   ├── os-infos
+│   └── pwm-info
+├── fast-all.sh
+├── grub.cfg
+├── kernel
+│   ├── ata.c
+│   ├── ata.h
+│   ├── auth.c
+│   ├── auth.h
+│   ├── ext2.c
+│   ├── ext2.h
+│   ├── io.h
+│   ├── kernel_entry.asm
+│   ├── keyboard.c
+│   ├── keyboard.h
+│   ├── kmain.c
+│   ├── logo
+│   │   ├── ascii
+│   │   │   ├── 24x24
+│   │   │   │   └── piux
+│   │   │   ├── 48x48
+│   │   │   │   └── piux
+│   │   │   └── 96x96
+│   │   │       └── piux
+│   │   └── piux.png
+│   ├── mouse.c
+│   ├── mouse.h
+│   ├── ramfs.c
+│   ├── ramfs.h
+│   ├── system.c
+│   ├── system.h
+│   ├── video.c
+│   └── video.h
+├── LICENSE
+├── linker.ld
+├── Makefile
+├── piux.png
+├── README.md
+├── TREE.txt
+├── tui
+│   ├── installer
+│   │   ├── installer.c
+│   │   └── installer.h
+│   └── wm
+│       ├── wm.c
+│       └── wm.h
+└── USEFUL COMMANDS.txt
