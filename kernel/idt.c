@@ -17,6 +17,7 @@ typedef struct {
 static idt_entry_t idt[256];
 extern void syscall_entry(void);
 extern void timer_entry(void);
+extern void mouse_entry(void);
 extern void page_fault_entry(void);
 extern void general_protection_entry(void);
 
@@ -42,6 +43,7 @@ void syscall_init(void) {
     idt_set_gate(0x0d, general_protection_entry, 0x8e);
     idt_set_gate(0x0e, page_fault_entry, 0x8e);
     idt_set_gate(0x20, timer_entry, 0x8e);
+    idt_set_gate(0x2c, mouse_entry, 0x8e);
     pointer.limit = sizeof(idt) - 1;
     pointer.base = (uint32_t)idt;
     asm volatile ("lidt %0" : : "m"(pointer));

@@ -14,6 +14,8 @@ KERNEL    := $(BUILD_DIR)/kernel.elf
 ISO       := piux.iso
 DISK      := $(BUILD_DIR)/ext2.img
 PWM_INFO  := $(BUILD_DIR)/pwm-info.o
+CURSOR_RAW := $(BUILD_DIR)/cursor.rgba
+CURSOR_OBJ := $(BUILD_DIR)/cursor.o
 
 KERNEL_OBJS := $(patsubst kernel/%.c,$(BUILD_DIR)/kernel/%.o,$(wildcard kernel/*.c))
 KERNEL_ASM_OBJS := $(BUILD_DIR)/kernel/syscall_entry.o
@@ -26,7 +28,7 @@ WM_OBJS     := $(patsubst tui/wm/%.c,$(BUILD_DIR)/tui/wm/%.o,$(wildcard tui/wm/*
 LOGOS      := $(wildcard kernel/logo/ascii/*/*)
 LOGO_OBJS  := $(patsubst kernel/logo/ascii/%,$(BUILD_DIR)/logo-%.o,$(LOGOS))
 
-OBJECTS := $(BUILD_DIR)/bootx.o $(KERNEL_OBJS) $(KERNEL_ASM_OBJS) $(BIN_OBJS) $(TUI_OBJS) $(WM_OBJS) $(LOGO_OBJS) $(BUILD_DIR)/os-infos.o $(PWM_INFO)
+OBJECTS := $(BUILD_DIR)/bootx.o $(KERNEL_OBJS) $(KERNEL_ASM_OBJS) $(BIN_OBJS) $(TUI_OBJS) $(WM_OBJS) $(LOGO_OBJS) $(BUILD_DIR)/os-infos.o $(PWM_INFO) $(CURSOR_OBJ)
 
 all: $(ISO)
 
@@ -64,6 +66,14 @@ $(PWM_INFO): etc/pwm-info
 	$(OBJCOPY) -I binary -O elf32-i386 -B i386 \
 	  --rename-section .data=.pwm_info,alloc,load,readonly,data,contents $< $@
 
+$(CURSOR_RAW): kernel/logo/cur/arrow.png
+	@mkdir -p $(dir $@)
+	convert $< -resize 24x24! -depth 8 RGBA:$@
+
+$(CURSOR_OBJ): $(CURSOR_RAW)
+	$(OBJCOPY) -I binary -O elf32-i386 -B i386 \
+	  --rename-section .data=.rodata,alloc,load,readonly,data,contents $< $@
+
 $(BUILD_DIR)/logo-%.o: kernel/logo/ascii/%
 	@mkdir -p $(dir $@)
 	$(OBJCOPY) -I binary -O elf32-i386 -B i386 \
@@ -83,7 +93,7 @@ $(DISK):
 	mke2fs -q -t ext2 -F $@
 
 run: $(ISO) $(DISK)
-	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 512M -vga none -device VGA,xres=1280,yres=720 -display gtk,zoom-to-fit=off
+	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 512M -vga std -display gtk,zoom-to-fit=off
 
 debug: $(KERNEL)
 	qemu-system-i386 -cdrom $(ISO) -m 512M -s -S &

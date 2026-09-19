@@ -20,6 +20,17 @@ static int pwm_running;
 static int pwm_stop_requested;
 static int pwm_width;
 static int pwm_height;
+static int cursor_x;
+static int cursor_y;
+static int cursor_drawn_x;
+static int cursor_drawn_y;
+static uint8_t cursor_buttons;
+static int cursor_moved;
+static int cursor_background_valid;
+static uint8_t cursor_background[24 * 24 * 4];
+
+extern const uint8_t _binary_build_cursor_rgba_start[];
+extern const uint8_t _binary_build_cursor_rgba_end[];
 
 extern ext2_filesystem_t fs;
 extern command_t *find_command(const char *name);
@@ -190,10 +201,40 @@ static void draw_status(void) {
     while (column < pwm_width) video_put_cell(column++, pwm_height - 1, ' ', 0x70);
 }
 
+static int cursor_window(void) {
+    int terminal;
+    for (terminal = 0; terminal < window_count; terminal++) {
+        int left, top, width, height;
+        window_geometry(terminal, &left, &top, &width, &height);
+        if (cursor_x / VIDEO_CELL_WIDTH >= left && cursor_x / VIDEO_CELL_WIDTH < left + width &&
+            cursor_y / VIDEO_CELL_HEIGHT >= top && cursor_y / VIDEO_CELL_HEIGHT < top + height) return terminal;
+    }
+    return -1;
+}
+
+static void draw_cursor(void) {
+    const uint8_t *pixel = _binary_build_cursor_rgba_start;
+    const uint8_t *end = _binary_build_cursor_rgba_end;
+    int width = 24;
+    int height = 24;
+    if (end - pixel < width * height * 4) return;
+    if (cursor_background_valid) video_restore_region(cursor_drawn_x, cursor_drawn_y, width, height, cursor_background);
+    video_capture_region(cursor_x, cursor_y, width, height, cursor_background);
+    for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+        const uint8_t *rgba = pixel + (y * width + x) * 4;
+        if (rgba[3]) video_put_pixel(cursor_x + x, cursor_y + y,
+                                     ((uint32_t)rgba[0] << 16) | ((uint32_t)rgba[1] << 8) | rgba[2], rgba[3]);
+    }
+    cursor_drawn_x = cursor_x;
+    cursor_drawn_y = cursor_y;
+    cursor_background_valid = 1;
+}
+
 static void draw_desktop(void) {
     int left = pwm_width / 2;
     int right = pwm_width - left;
     int half = pwm_height / 2;
+    cursor_background_valid = 0;
     int buffered = video_begin_frame();
     fill_screen();
     if (window_count == 1) draw_window(0, 0, 0, pwm_width, pwm_height - 1);
@@ -211,17 +252,47 @@ static void draw_desktop(void) {
         draw_window(3, left, half, right, pwm_height - 1 - half);
     }
     draw_status();
+    draw_cursor();
     if (buffered) video_present();
 }
 
 static int handle_mouse(const mouse_event_t *event) {
-    if (event->wheel == 0) return 0;
-    terminals[active_window].scroll_offset += event->wheel > 0 ? -2 : 2;
-    if (terminals[active_window].scroll_offset < 0) terminals[active_window].scroll_offset = 0;
-    if (terminals[active_window].scroll_offset > terminals[active_window].line_count) {
-        terminals[active_window].scroll_offset = terminals[active_window].line_count;
+    int changed = 0;
+    cursor_moved = 0;
+    int next_x = cursor_x + event->dx;
+    int next_y = cursor_y - event->dy;
+    if (next_x < 0) next_x = 0;
+    if (next_y < 0) next_y = 0;
+    if (next_x >= pwm_width * VIDEO_CELL_WIDTH) next_x = pwm_width * VIDEO_CELL_WIDTH - 1;
+    if (next_y >= pwm_height * VIDEO_CELL_HEIGHT) next_y = pwm_height * VIDEO_CELL_HEIGHT - 1;
+    if (next_x != cursor_x || next_y != cursor_y) {
+        cursor_x = next_x;
+        cursor_y = next_y;
+        cursor_moved = 1;
     }
-    return 1;
+    {
+        int terminal = cursor_window();
+        if (terminal >= 0 && terminal != active_window) {
+            active_window = terminal;
+            changed = 1;
+        }
+    }
+    if ((event->buttons & MOUSE_BUTTON_LEFT) && !(cursor_buttons & MOUSE_BUTTON_LEFT)) {
+        int terminal = cursor_window();
+        if (terminal >= 0 && terminal != active_window) {
+            active_window = terminal;
+            changed = 1;
+        }
+    }
+    cursor_buttons = event->buttons;
+    if (event->wheel != 0) {
+        terminals[active_window].scroll_offset += event->wheel > 0 ? -2 : 2;
+        if (terminals[active_window].scroll_offset < 0) terminals[active_window].scroll_offset = 0;
+        if (terminals[active_window].scroll_offset > terminals[active_window].line_count)
+            terminals[active_window].scroll_offset = terminals[active_window].line_count;
+        changed = 1;
+    }
+    return changed;
 }
 
 int pwm_command_read_char(void) {
@@ -230,6 +301,7 @@ int pwm_command_read_char(void) {
         mouse_event_t event;
         while (mouse_poll(&event)) {
             if (handle_mouse(&event)) draw_desktop();
+            else if (cursor_moved) draw_cursor();
         }
         int key = keyboard_try_read_char();
         if (key >= 0) {
@@ -313,6 +385,9 @@ int pwm_run(pwm_clear_t clear, pwm_puts_t puts, pwm_putc_t putc) {
     pwm_width = video_columns;
     pwm_height = video_rows;
     active_window = 0;
+    cursor_x = pwm_width * VIDEO_CELL_WIDTH / 2;
+    cursor_y = pwm_height * VIDEO_CELL_HEIGHT / 2;
+    cursor_buttons = 0;
     mouse_init();
     pwm_running = 1;
     pwm_stop_requested = 0;
@@ -328,6 +403,7 @@ int pwm_run(pwm_clear_t clear, pwm_puts_t puts, pwm_putc_t putc) {
         }
         while (mouse_poll(&mouse_event)) {
             if (handle_mouse(&mouse_event)) dirty = 1;
+            else if (cursor_moved) draw_cursor();
         }
         key = keyboard_try_read_char();
         if (key < 0) continue;

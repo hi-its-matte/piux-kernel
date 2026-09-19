@@ -10,9 +10,9 @@ align 4
     dd MULTIBOOT_FLAGS
     dd MULTIBOOT_CHECKSUM
     dd 0
-    dd 1280
-    dd 720
     dd 0
+    dd 0
+    dd 32
 
 section .bootstrap_stack
 align 4

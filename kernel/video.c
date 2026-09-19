@@ -27,6 +27,13 @@ static uint8_t video_backbuffer[VIDEO_BACKBUFFER_WIDTH * VIDEO_BACKBUFFER_HEIGHT
 static uint32_t video_backbuffer_pitch;
 static int video_frame_active;
 
+static uint32_t framebuffer_color(uint32_t rgb) {
+    if (framebuffer_bpp == 32) return rgb;
+    return (((rgb >> 16) * ((1u << red_mask_size) - 1u) / 255u) << red_position) |
+           (((rgb >> 8) * ((1u << green_mask_size) - 1u) / 255u) << green_position) |
+           ((rgb * ((1u << blue_mask_size) - 1u) / 255u) << blue_position);
+}
+
 struct multiboot_info {
     uint32_t flags;
     uint32_t memory_lower;
@@ -153,7 +160,7 @@ void video_init(uint32_t magic, uint32_t multiboot_address) {
     if (magic != MULTIBOOT_BOOTLOADER_MAGIC) return;
     struct multiboot_info *info = (struct multiboot_info *)multiboot_address;
     if (!(info->flags & MULTIBOOT_INFO_FRAMEBUFFER) ||
-        info->framebuffer_width < VIDEO_WIDTH || info->framebuffer_height < VIDEO_HEIGHT ||
+        info->framebuffer_width == 0 || info->framebuffer_height == 0 ||
         (info->framebuffer_bpp != 16 && info->framebuffer_bpp != 24 && info->framebuffer_bpp != 32) ||
         info->framebuffer_type != 1 || info->framebuffer_address == 0 ||
         info->framebuffer_pitch < info->framebuffer_width * (info->framebuffer_bpp / 8)) return;
@@ -207,6 +214,60 @@ void video_present(void) {
         for (uint32_t byte = 0; byte < video_backbuffer_pitch; byte++)
             framebuffer[y * framebuffer_pitch + byte] = video_backbuffer[y * video_backbuffer_pitch + byte];
     video_frame_active = 0;
+}
+
+void video_put_pixel(int x, int y, uint32_t color, uint8_t alpha) {
+    uint8_t *target;
+    uint32_t target_pitch;
+    uint8_t *address;
+    uint32_t value;
+    if (!video_framebuffer_ready || x < 0 || y < 0 ||
+        (uint32_t)x >= framebuffer_width || (uint32_t)y >= framebuffer_height || alpha == 0) return;
+    target = video_frame_active ? video_backbuffer : framebuffer;
+    target_pitch = video_frame_active ? video_backbuffer_pitch : framebuffer_pitch;
+    address = target + y * target_pitch + x * framebuffer_bytes_per_pixel;
+    value = framebuffer_color(color);
+    if (alpha < 255) return;
+    for (uint8_t byte = 0; byte < framebuffer_bytes_per_pixel; byte++) address[byte] = (uint8_t)(value >> (byte * 8));
+}
+
+void video_capture_region(int x, int y, int width, int height, uint8_t *buffer) {
+    uint8_t *source_buffer;
+    uint32_t source_pitch;
+    if (!video_framebuffer_ready || buffer == 0) return;
+    source_buffer = video_frame_active ? video_backbuffer : framebuffer;
+    source_pitch = video_frame_active ? video_backbuffer_pitch : framebuffer_pitch;
+    for (int row = 0; row < height; row++) for (int column = 0; column < width; column++) {
+        uint8_t *destination = buffer + (row * width + column) * 4;
+        int source_x = x + column;
+        int source_y = y + row;
+        for (uint8_t byte = 0; byte < 4; byte++) destination[byte] = 0;
+        if (source_x < 0 || source_y < 0 || (uint32_t)source_x >= framebuffer_width ||
+            (uint32_t)source_y >= framebuffer_height) continue;
+        {
+            const uint8_t *source = source_buffer + source_y * source_pitch + source_x * framebuffer_bytes_per_pixel;
+            for (uint8_t byte = 0; byte < framebuffer_bytes_per_pixel; byte++) destination[byte] = source[byte];
+        }
+    }
+}
+
+void video_restore_region(int x, int y, int width, int height, const uint8_t *buffer) {
+    uint8_t *destination_buffer;
+    uint32_t destination_pitch;
+    if (!video_framebuffer_ready || buffer == 0) return;
+    destination_buffer = video_frame_active ? video_backbuffer : framebuffer;
+    destination_pitch = video_frame_active ? video_backbuffer_pitch : framebuffer_pitch;
+    for (int row = 0; row < height; row++) for (int column = 0; column < width; column++) {
+        int destination_x = x + column;
+        int destination_y = y + row;
+        if (destination_x < 0 || destination_y < 0 || (uint32_t)destination_x >= framebuffer_width ||
+            (uint32_t)destination_y >= framebuffer_height) continue;
+        {
+            uint8_t *destination = destination_buffer + destination_y * destination_pitch + destination_x * framebuffer_bytes_per_pixel;
+            const uint8_t *source = buffer + (row * width + column) * 4;
+            for (uint8_t byte = 0; byte < framebuffer_bytes_per_pixel; byte++) destination[byte] = source[byte];
+        }
+    }
 }
 
 void video_scroll(void) {

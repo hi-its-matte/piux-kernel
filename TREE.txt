@@ -1,4 +1,5 @@
 .
+├── banner.png
 ├── bin
 │   ├── about.c
 │   ├── cat.c
@@ -32,6 +33,11 @@
 │   ├── auth.h
 │   ├── ext2.c
 │   ├── ext2.h
+│   ├── gdt.c
+│   ├── gdt_flush.asm
+│   ├── gdt.h
+│   ├── idt.c
+│   ├── interrupt_entry.asm
 │   ├── io.h
 │   ├── kernel_entry.asm
 │   ├── keyboard.c
@@ -45,13 +51,26 @@
 │   │   │   │   └── piux
 │   │   │   └── 96x96
 │   │   │       └── piux
+│   │   ├── cur
+│   │   │   └── arrow.png
 │   │   └── piux.png
+│   ├── memory.c
+│   ├── memory.h
 │   ├── mouse.c
 │   ├── mouse.h
+│   ├── process.c
+│   ├── process.h
 │   ├── ramfs.c
 │   ├── ramfs.h
+│   ├── syscall.c
+│   ├── syscall_entry.asm
+│   ├── syscall.h
 │   ├── system.c
 │   ├── system.h
+│   ├── timer.c
+│   ├── timer.h
+│   ├── vfs.c
+│   ├── vfs.h
 │   ├── video.c
 │   └── video.h
 ├── LICENSE
@@ -60,11 +79,10 @@
 ├── piux.png
 ├── README.md
 ├── TREE.txt
-├── tui
-│   ├── installer
-│   │   ├── installer.c
-│   │   └── installer.h
-│   └── wm
-│       ├── wm.c
-│       └── wm.h
-└── USEFUL COMMANDS.txt
+└── tui
+    ├── installer
+    │   ├── installer.c
+    │   └── installer.h
+    └── wm
+        ├── wm.c
+        └── wm.h

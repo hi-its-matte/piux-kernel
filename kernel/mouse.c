@@ -5,6 +5,10 @@
 static int packet_length = 3;
 static uint8_t packet[4];
 static int packet_index;
+#define MOUSE_QUEUE_SIZE 32
+static mouse_event_t event_queue[MOUSE_QUEUE_SIZE];
+static volatile uint8_t queue_read;
+static volatile uint8_t queue_write;
 
 static void wait_controller(void) {
     for (uint32_t timeout = 0; timeout < 100000; timeout++) if (!(inb(0x64) & 2)) return;
@@ -68,22 +72,36 @@ void mouse_init(void) {
     send_aux(0xF4);
     read_aux_response(&response);
     packet_index = 0;
+    queue_read = 0;
+    queue_write = 0;
+    outb(0xa1, inb(0xa1) & (uint8_t)~0x10);
+    outb(0x21, inb(0x21) & (uint8_t)~0x04);
+}
+
+void mouse_irq_handler(void) {
+    uint8_t value;
+    if (!read_aux(&value)) return;
+    if (packet_index == 0 && !(value & 0x08)) return;
+    packet[packet_index++] = value;
+    if (packet_index < packet_length) return;
+    packet_index = 0;
+    {
+        uint8_t next_write = (uint8_t)((queue_write + 1) % MOUSE_QUEUE_SIZE);
+        if (next_write == queue_read) return;
+        event_queue[queue_write].buttons = packet[0] & 0x07;
+        event_queue[queue_write].dx = (int8_t)packet[1];
+        event_queue[queue_write].dy = (int8_t)packet[2];
+        event_queue[queue_write].wheel = packet_length == 4 ? (int8_t)(packet[3] & 0x0F) : 0;
+        if (event_queue[queue_write].wheel & 0x08) event_queue[queue_write].wheel |= (int8_t)0xF0;
+        queue_write = next_write;
+    }
 }
 
 int mouse_poll(mouse_event_t *event) {
-    uint8_t value;
     if (event == 0) return 0;
-    while (read_aux(&value)) {
-        if (packet_index == 0 && !(value & 0x08)) continue;
-        packet[packet_index++] = value;
-        if (packet_index < packet_length) continue;
-        packet_index = 0;
-        event->buttons = packet[0] & 0x07;
-        event->dx = (int8_t)packet[1];
-        event->dy = (int8_t)packet[2];
-        event->wheel = packet_length == 4 ? (int8_t)(packet[3] & 0x0F) : 0;
-        if (event->wheel & 0x08) event->wheel |= (int8_t)0xF0;
-        return 1;
-    }
-    return 0;
+    if (queue_read == queue_write) mouse_irq_handler();
+    if (queue_read == queue_write) return 0;
+    *event = event_queue[queue_read];
+    queue_read = (uint8_t)((queue_read + 1) % MOUSE_QUEUE_SIZE);
+    return 1;
 }

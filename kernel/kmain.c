@@ -16,8 +16,8 @@
 #include "../tui/wm/wm.h"
 
 #define VGA_MEMORY 0xB8000
-#define VGA_WIDTH (video_framebuffer_ready ? VIDEO_COLUMNS : 80)
-#define VGA_HEIGHT (video_framebuffer_ready ? VIDEO_ROWS : 25)
+#define VGA_WIDTH (video_framebuffer_ready ? video_columns : 80)
+#define VGA_HEIGHT (video_framebuffer_ready ? video_rows : 25)
 
 uint16_t *vga_buffer = (uint16_t *)VGA_MEMORY;
 uint32_t cursor_x = 0;
