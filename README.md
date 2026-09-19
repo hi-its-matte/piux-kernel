@@ -219,6 +219,24 @@ The current implementation does not yet provide complete support for:
 
 When an ext2 disk is unavailable, Piux can fall back to its RAMFS implementation for basic filesystem operations.
 
+### Everything is a file
+
+Piux exposes filesystem and device access through the kernel VFS in `kernel/vfs.h`.
+It provides Unix-like file descriptors with `vfs_open`, `vfs_read`, `vfs_write`,
+`vfs_seek`, and `vfs_close`. Regular files use Ext2 or RAMFS as their backend,
+while the initial device nodes are `/dev/console`, `/dev/keyboard`, `/dev/null`,
+and `/dev/hda`. This is the foundation for a Unix-style device model; process
+syscalls are available through `int 0x80` for file I/O, PID/UID queries,
+cooperative yield, and process exit. Ext2 mode bits and ownership are checked
+on open; UID 0 bypasses checks. Paging, a kernel/user GDT and TSS, protected
+user pointer validation, exception gates, and a PIT timer IRQ are now active.
+The process model is still kernel-space and cooperative until a loader and
+independent saved CPU contexts are added.
+
+The syscall numbers are `read=0`, `write=1`, `open=2`, `close=3`, `seek=4`,
+`getpid=5`, `getuid=6`, `yield=7`, and `exit=8`. Arguments use `ebx`, `ecx`,
+and `edx`; the return value is in `eax`.
+
 ## First-Boot Installer
 
 On an ext2 filesystem without the first-boot marker, Piux launches a keyboard-driven installer TUI.
@@ -641,10 +659,9 @@ Check that QEMU is exposing a compatible PS/2 keyboard and that the Piux keyboar
 ## Known Limitations
 
 * No FAT filesystem support
-* No complete interrupt/exception subsystem
-* No multitasking or process management
-* No user/kernel process separation
-* No general-purpose dynamic memory allocator
+* No complete interrupt/exception subsystem for every vector
+* No independent user-space process execution
+* No general-purpose allocator with `free` or page reclamation
 * No networking
 * No hardware-accelerated graphics
 * No complete partitioning subsystem
@@ -657,24 +674,25 @@ Check that QEMU is exposing a compatible PS/2 keyboard and that the Piux keyboar
 * No shell pipes
 * No shell redirection
 * No shell variables
-* `top` is not yet a process monitor
+* `top` is not yet a complete process monitor
 * pWM terminals are not independent user-space processes
 
 ## Future Improvements
 
 Possible future development targets include:
 
-* [ ] Interrupt descriptor table (IDT)
-* [ ] Hardware interrupt handling
-* [ ] Exception handling
-* [ ] Protected-mode paging
-* [ ] Physical/virtual memory management
-* [ ] `malloc` / `free`
-* [ ] User mode
-* [ ] System calls
-* [ ] Processes
-* [ ] Task switching
-* [ ] Scheduler
+* [x] Interrupt descriptor table (IDT)
+* [x] PIT hardware interrupt handling
+* [x] Page-fault and general-protection gates
+* [x] Protected-mode identity paging
+* [x] Bounded kernel memory allocation
+* [x] Kernel/user GDT and TSS
+* [x] File and process system calls
+* [x] Kernel process table and cooperative scheduler
+* [ ] User ELF loader and independent address spaces
+* [ ] Task switching with saved CPU contexts
+* [ ] Preemptive scheduler
+* [ ] `fork` / `exec`
 * [ ] IPC
 * [ ] Pipes and shell redirection
 * [ ] Improved ext2 deletion, rename, and truncate support

@@ -24,6 +24,7 @@ extern kernel_main
 global _start
 _start:
     mov esp, stack_top
+    cli
     
     push ebx
     push eax
@@ -38,4 +39,5 @@ section .bss
 align 4
 stack_bottom:
     resb 16384
+global stack_top
 stack_top:

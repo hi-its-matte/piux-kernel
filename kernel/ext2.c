@@ -2,6 +2,7 @@
 #include "io.h"
 #include "ata.h"
 #include "ext2.h"
+#include "auth.h"
 
 ext2_filesystem_t fs;
 static int fs_initialized;
@@ -532,6 +533,7 @@ int ext2_create_file(const char *filename) {
     if (allocate_inode(&inode_num) < 0) return -1;
     memset_safe(&inode, 0, sizeof(inode));
     inode.mode = EXT2_S_IFREG | 0644;
+    inode.uid = (uint16_t)auth_current_uid();
     inode.links_count = 1;
     if (ext2_write_inode(inode_num, &inode) < 0 ||
         add_directory_entry(&directory, inode_num, filename, EXT2_FT_REG_FILE) < 0 ||
@@ -552,6 +554,7 @@ int ext2_create_directory(const char *dirname) {
 
     memset_safe(&inode, 0, sizeof(inode));
     inode.mode = EXT2_S_IFDIR | 0755;
+    inode.uid = (uint16_t)auth_current_uid();
     inode.links_count = 2;
     inode.size = fs.block_size;
     inode.blocks = fs.block_size / 512;

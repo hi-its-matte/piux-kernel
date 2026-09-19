@@ -221,4 +221,8 @@ int auth_login(auth_clear_t clear, auth_puts_t puts, auth_putc_t putc) {
 }
 
 const char *auth_current_username(void) { return current_username; }
+uint32_t auth_current_uid(void) {
+    if (current_username[0] == '\0' || strings_equal(current_username, "root")) return 0;
+    return 1000;
+}
 int auth_current_user_is_sudoer(void) { return current_sudoer; }

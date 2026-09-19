@@ -16,6 +16,9 @@ DISK      := $(BUILD_DIR)/ext2.img
 PWM_INFO  := $(BUILD_DIR)/pwm-info.o
 
 KERNEL_OBJS := $(patsubst kernel/%.c,$(BUILD_DIR)/kernel/%.o,$(wildcard kernel/*.c))
+KERNEL_ASM_OBJS := $(BUILD_DIR)/kernel/syscall_entry.o
+KERNEL_ASM_OBJS += $(BUILD_DIR)/kernel/gdt_flush.o
+KERNEL_ASM_OBJS += $(BUILD_DIR)/kernel/interrupt_entry.o
 BIN_OBJS    := $(patsubst bin/%.c,$(BUILD_DIR)/bin/%.o,$(wildcard bin/*.c))
 TUI_OBJS    := $(patsubst tui/installer/%.c,$(BUILD_DIR)/tui/installer/%.o,$(wildcard tui/installer/*.c))
 WM_OBJS     := $(patsubst tui/wm/%.c,$(BUILD_DIR)/tui/wm/%.o,$(wildcard tui/wm/*.c))
@@ -23,7 +26,7 @@ WM_OBJS     := $(patsubst tui/wm/%.c,$(BUILD_DIR)/tui/wm/%.o,$(wildcard tui/wm/*
 LOGOS      := $(wildcard kernel/logo/ascii/*/*)
 LOGO_OBJS  := $(patsubst kernel/logo/ascii/%,$(BUILD_DIR)/logo-%.o,$(LOGOS))
 
-OBJECTS := $(BUILD_DIR)/bootx.o $(KERNEL_OBJS) $(BIN_OBJS) $(TUI_OBJS) $(WM_OBJS) $(LOGO_OBJS) $(BUILD_DIR)/os-infos.o $(PWM_INFO)
+OBJECTS := $(BUILD_DIR)/bootx.o $(KERNEL_OBJS) $(KERNEL_ASM_OBJS) $(BIN_OBJS) $(TUI_OBJS) $(WM_OBJS) $(LOGO_OBJS) $(BUILD_DIR)/os-infos.o $(PWM_INFO)
 
 all: $(ISO)
 
@@ -34,6 +37,10 @@ $(BUILD_DIR)/bootx.o: boot/bootx.asm
 $(BUILD_DIR)/kernel/%.o: kernel/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/kernel/%.o: kernel/%.asm
+	@mkdir -p $(dir $@)
+	$(AS) $(ASFLAGS) -o $@ $<
 
 $(BUILD_DIR)/bin/%.o: bin/%.c
 	@mkdir -p $(dir $@)

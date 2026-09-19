@@ -2,6 +2,12 @@
 #include "io.h"
 #include "keyboard.h"
 #include "ext2.h"
+#include "vfs.h"
+#include "syscall.h"
+#include "process.h"
+#include "memory.h"
+#include "gdt.h"
+#include "timer.h"
 #include "auth.h"
 #include "video.h"
 #include "system.h"
@@ -384,13 +390,20 @@ void shell(void) {
 }
 
 void kernel_main(uint32_t magic, uint32_t addr) {
+    asm volatile ("cli");
     system_info_init(magic, addr);
     video_init(magic, addr);
     vga_clear();
     vga_update_cursor();
 
+    memory_init();
+    gdt_init();
     ramfs_init();
     ext2_mount();
+    vfs_init();
+    process_init();
+    syscall_init();
+    timer_init(100);
 
     if (!first_boot_menu()) {
         vga_puts("Welcome to Piux!\n");
