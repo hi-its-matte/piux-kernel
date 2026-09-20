@@ -36,13 +36,38 @@ static void vga_update_cursor(void) {
 extern ext2_filesystem_t fs;
 extern int ramfs_init(void);
 
-static void power_off(void) {
-    outw(0x604, 0x2000);
-    outw(0xB004, 0x2000);
 
-    for (;;) {
-        asm volatile ("cli; hlt");
-    }
+// made my nugget for antodev
+
+// these values must be parsed out of the fadt table at boot, but now it is simply overkill
+uint32_t PM1a_CNT_BLK = 0; 
+uint32_t PM1b_CNT_BLK = 0;
+// use S5 package (shutdown)
+uint8_t SLP_TYPa = 0;
+uint8_t SLP_TYPb = 0;
+
+#define ACPI_SLP_EN (1 << 13) // Bit 13 is the Sleep Enable bit
+// safe poweroff function
+static void power_off(void) {
+    // for the concept, if PM1a_CNT_BLK is 0, the table is not parsed, but lets not error yet since we use an hardcoded table
+    // disable interrupts (WITHOUT HANGING!) so the cpu doesnt randomly context switch
+    __asm__ __volatile__("cli"); // so GAS doesnt optimize the code
+    // use __asm__ so C does not move this to another function (for optimization resions of qemu and bochs
+    // we would normally execute this block of code if PM1a_CNT_BLK, but again...
+    uint16_t pm1a_cmd = (SLP_TYPa << 10) | ACPI_SLP_EN;
+    outw((uint16_t)PM1a_CNT_BLK, pm1a_cmd);
+    uint16_t pm1b_cmd = (SLP_TYPb << 10) | ACPI_SLP_EN;
+     outw((uint16_t)PM1b_CNT_BLK, pm1b_cmd);
+  // now for old versions of qemu/bochs
+    outw(0xB004, 0x2000);
+    // new versions of qemu
+    outw(0x604, 0x2000);
+    // for new & old versions of oracle slop (sun microsystsms bstter >:])
+    outw(0x4004, 0x3400);
+    // for "generic" cloud hypervisors
+    outb(0x600, 0x34);
+    // simply panic if all the used methods here go wrong.
+    for(;;) __asm__ __volatile__("cli; hlt");
 }
 
 static void reboot_system(void) {
