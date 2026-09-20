@@ -12,3 +12,7 @@ void cmd_clean(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
     (void)vga_putc;
     if (!pwm_command_clear()) vga_clear();
 }
+
+void cmd_clear(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
+    cmd_clean(param, vga_puts, vga_putc);
+}
