@@ -26,6 +26,22 @@ typedef struct {
     char name[PROCESS_NAME_SIZE];
 } process_t;
 
+/* Top of the user stack region handed to ring3 programs loaded via process_exec. */
+#define PROCESS_USER_STACK_TOP 0x03ff0000U
+
+typedef struct {
+    uint32_t eip;
+    uint32_t esp;
+    uint32_t ebp;
+    uint32_t ebx;
+    uint32_t esi;
+    uint32_t edi;
+} process_context_t;
+
+int process_context_save(process_context_t *context);
+void process_context_restore(process_context_t *context, int value) __attribute__((noreturn));
+void process_enter_user_mode(uint32_t entry, uint32_t user_stack) __attribute__((noreturn));
+
 void process_init(void);
 int process_create(const char *name, process_entry_t entry, void *argument);
 int process_getpid(void);
@@ -34,5 +50,9 @@ void process_exit(int status);
 void process_yield(void);
 int process_schedule_once(void);
 const process_t *process_current(void);
+
+/* Runs a loaded ELF entry point in ring3 until it exits, blocking the caller. */
+int process_exec(uint32_t entry_point, uint32_t user_stack_top);
+void process_exit_user(int status) __attribute__((noreturn));
 
 #endif

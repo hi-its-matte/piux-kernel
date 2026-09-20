@@ -75,3 +75,19 @@ int process_schedule_once(void) {
 }
 
 const process_t *process_current(void) { return current_process; }
+
+static process_context_t exec_context;
+static int exec_exit_status;
+
+int process_exec(uint32_t entry_point, uint32_t user_stack_top) {
+    exec_exit_status = 0;
+    if (process_context_save(&exec_context) == 0) {
+        process_enter_user_mode(entry_point, user_stack_top);
+    }
+    return exec_exit_status;
+}
+
+void process_exit_user(int status) {
+    exec_exit_status = status;
+    process_context_restore(&exec_context, 1);
+}

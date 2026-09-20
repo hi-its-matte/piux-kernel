@@ -105,9 +105,12 @@ int keyboard_try_read_char(void) {
     return -1;
 }
 
+extern void net_poll(void);
+
 int keyboard_read_char(void) {
     int character;
     while ((character = keyboard_try_read_char()) < 0) {
+        net_poll(); /* answer ARP/ICMP passively while idle at the prompt */
     }
     return character;
 }

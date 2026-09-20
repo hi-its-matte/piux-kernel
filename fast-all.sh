@@ -49,6 +49,8 @@ start_vm() {
     qemu-system-i386 \
         -cdrom "$ISO" \
         -drive "file=$DISK,format=raw,if=ide" \
+        -device rtl8139,netdev=n0 \
+        -netdev user,id=n0 \
         -m 512M \
         -vga std \
         "${QEMU_DISPLAY[@]}"

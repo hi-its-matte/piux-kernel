@@ -21,6 +21,7 @@ KERNEL_OBJS := $(patsubst kernel/%.c,$(BUILD_DIR)/kernel/%.o,$(wildcard kernel/*
 KERNEL_ASM_OBJS := $(BUILD_DIR)/kernel/syscall_entry.o
 KERNEL_ASM_OBJS += $(BUILD_DIR)/kernel/gdt_flush.o
 KERNEL_ASM_OBJS += $(BUILD_DIR)/kernel/interrupt_entry.o
+KERNEL_ASM_OBJS += $(BUILD_DIR)/kernel/context.o
 BIN_OBJS    := $(patsubst bin/%.c,$(BUILD_DIR)/bin/%.o,$(wildcard bin/*.c))
 TUI_OBJS    := $(patsubst tui/installer/%.c,$(BUILD_DIR)/tui/installer/%.o,$(wildcard tui/installer/*.c))
 WM_OBJS     := $(patsubst tui/wm/%.c,$(BUILD_DIR)/tui/wm/%.o,$(wildcard tui/wm/*.c))
@@ -93,7 +94,7 @@ $(DISK):
 	mke2fs -q -t ext2 -F $@
 
 run: $(ISO) $(DISK)
-	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -m 512M -vga std -display gtk,zoom-to-fit=off
+	qemu-system-i386 -cdrom $(ISO) -drive file=$(DISK),format=raw,if=ide -device rtl8139,netdev=n0 -netdev user,id=n0 -m 512M -vga std -display gtk,zoom-to-fit=off
 
 debug: $(KERNEL)
 	qemu-system-i386 -cdrom $(ISO) -m 512M -s -S &

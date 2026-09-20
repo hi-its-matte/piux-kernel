@@ -660,12 +660,11 @@ Check that QEMU is exposing a compatible PS/2 keyboard and that the Piux keyboar
 
 * No FAT filesystem support
 * No complete interrupt/exception subsystem for every vector
-* No independent user-space process execution
+* No per-process address space isolation (`run` executes ring3 ELF binaries in the same shared identity-mapped memory)
 * No general-purpose allocator with `free` or page reclamation
-* No networking
+* Minimal polling-mode network stack (RTL8139 + ARP + IPv4 + ICMP + UDP + single-connection TCP) — no DHCP, no DNS, no real sockets, no retransmission/reordering
 * No hardware-accelerated graphics
 * No complete partitioning subsystem
-* No ext2 file deletion
 * No ext2 rename
 * No ext2 truncate with block freeing
 * No triple-indirect ext2 file growth
@@ -689,10 +688,19 @@ Possible future development targets include:
 * [x] Kernel/user GDT and TSS
 * [x] File and process system calls
 * [x] Kernel process table and cooperative scheduler
-* [ ] User ELF loader and independent address spaces
+* [x] User ELF loader and ring3 `run` command (blocking, shared address space)
+* [x] RTL8139 driver over PCI (raw send/receive, polling mode)
+* [x] Minimal ARP/IPv4/ICMP/UDP stack and `net` command
+* [x] Ultra-minimal single-connection TCP client and `net get` HTTP/1.0 download
+* [x] Real ext2 file deletion (direct/single/double-indirect blocks and inode freed)
+* [x] `pix` package manager (`install`/`remove`/`info`/`where`) over plain HTTP
+* [ ] DHCP client
+* [ ] Reliable TCP (retransmission, reordering, multiple connections)
+* [ ] DNS resolver
+* [ ] Per-process page directories and address space isolation
 * [ ] Task switching with saved CPU contexts
 * [ ] Preemptive scheduler
-* [ ] `fork` / `exec`
+* [ ] `fork` / `exec` callable from ring3
 * [ ] IPC
 * [ ] Pipes and shell redirection
 * [ ] Improved ext2 deletion, rename, and truncate support
@@ -700,7 +708,7 @@ Possible future development targets include:
 * [ ] More keyboard layouts
 * [ ] Serial console
 * [ ] Improved partition support
-* [ ] Networking
+* [ ] Socket API
 * [ ] Loadable modules
 * [ ] Graphical pWM
 * [ ] Additional framebuffer resolutions

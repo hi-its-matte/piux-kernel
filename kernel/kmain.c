@@ -11,6 +11,7 @@
 #include "auth.h"
 #include "video.h"
 #include "system.h"
+#include "rtl8139.h"
 #include "../bin/commands.h"
 #include "../tui/installer/installer.h"
 #include "../tui/wm/wm.h"
@@ -404,6 +405,7 @@ void kernel_main(uint32_t magic, uint32_t addr) {
     process_init();
     syscall_init();
     timer_init(100);
+    rtl8139_init();
 
     if (!first_boot_menu()) {
         vga_puts("Welcome to Piux!\n");

@@ -639,3 +639,102 @@ int ext2_write_file_by_path(const char *path, const char *buffer, uint32_t size)
     if (inode < 0) inode = ext2_create_file_by_path(path);
     return inode < 0 ? -1 : ext2_write_file((uint32_t)inode, buffer, size);
 }
+
+static int free_block(uint32_t block_num) {
+    for (uint32_t group = 0; group < fs.group_count; group++) {
+        uint32_t first = fs.first_data_block + group * fs.superblock.blocks_per_group;
+        uint32_t group_blocks = fs.superblock.blocks_per_group;
+        ext2_group_descriptor_t descriptor;
+        uint32_t bit;
+        if (first >= fs.superblock.blocks_count) continue;
+        if (first + group_blocks > fs.superblock.blocks_count) group_blocks = fs.superblock.blocks_count - first;
+        if (block_num < first || block_num >= first + group_blocks) continue;
+        if (read_group_descriptor(group, &descriptor) < 0 || ext2_read_block(descriptor.block_bitmap, block_buffer) < 0) return -1;
+        bit = block_num - first;
+        block_buffer[bit / 8] &= (uint8_t)~(1U << (bit % 8));
+        if (ext2_write_block(descriptor.block_bitmap, block_buffer) < 0) return -1;
+        descriptor.free_blocks_count++;
+        fs.superblock.free_blocks_count++;
+        return (write_group_descriptor(group, &descriptor) < 0 || write_superblock() < 0) ? -1 : 0;
+    }
+    return -1;
+}
+
+static int free_inode(uint32_t inode_num) {
+    uint32_t zero_based = inode_num - 1;
+    uint32_t group = zero_based / fs.superblock.inodes_per_group;
+    uint32_t index = zero_based % fs.superblock.inodes_per_group;
+    ext2_group_descriptor_t descriptor;
+    if (read_group_descriptor(group, &descriptor) < 0 || ext2_read_block(descriptor.inode_bitmap, block_buffer) < 0) return -1;
+    block_buffer[index / 8] &= (uint8_t)~(1U << (index % 8));
+    if (ext2_write_block(descriptor.inode_bitmap, block_buffer) < 0) return -1;
+    descriptor.free_inodes_count++;
+    fs.superblock.free_inodes_count++;
+    return (write_group_descriptor(group, &descriptor) < 0 || write_superblock() < 0) ? -1 : 0;
+}
+
+static int remove_directory_entry(ext2_inode_t *directory, const char *name) {
+    uint32_t blocks = block_count_for_size(directory->size);
+    for (uint32_t logical = 0; logical < blocks; logical++) {
+        uint32_t physical;
+        uint32_t offset = 0;
+        if (inode_block(directory, logical, &physical) < 0 || physical == 0 || ext2_read_block(physical, block_buffer) < 0) return -1;
+        while (offset + 8 <= fs.block_size) {
+            ext2_dir_entry_t *entry = (ext2_dir_entry_t *)(block_buffer + offset);
+            if (entry->rec_len < 8 || entry->rec_len > fs.block_size - offset || entry->name_len > entry->rec_len - 8) break;
+            if (entry->inode != 0 && name_equal(entry->name, entry->name_len, name)) {
+                entry->inode = 0;
+                return ext2_write_block(physical, block_buffer);
+            }
+            offset += entry->rec_len;
+        }
+    }
+    return -1;
+}
+
+/* Frees the inode's data blocks (direct, single and double indirect) and clears its
+   directory entry; the entry slot and inode/block bitmap bits become reusable. */
+int ext2_delete_file_by_path(const char *path) {
+    char parent_path[256];
+    char name[EXT2_MAX_NAME_LEN + 1];
+    ext2_inode_t parent;
+    ext2_inode_t file;
+    int parent_inode_num;
+    int file_inode_num;
+    uint32_t blocks;
+
+    if (!fs_initialized || split_parent_path(path, parent_path, name) < 0) return -1;
+    parent_inode_num = parent_path[0] == '\0' ? (int)fs.current_dir_inode : ext2_find_inode_by_path(parent_path);
+    if (parent_inode_num < 0 || ext2_read_inode((uint32_t)parent_inode_num, &parent) < 0) return -1;
+
+    file_inode_num = ext2_find_inode_in_dir((uint32_t)parent_inode_num, name);
+    if (file_inode_num < 0 || ext2_read_inode((uint32_t)file_inode_num, &file) < 0) return -1;
+    if ((file.mode & EXT2_S_IFMT) != EXT2_S_IFREG) return -1;
+
+    if (remove_directory_entry(&parent, name) < 0) return -1;
+
+    blocks = block_count_for_size(file.size);
+    for (uint32_t logical = 0; logical < blocks; logical++) {
+        uint32_t physical;
+        if (inode_block(&file, logical, &physical) == 0 && physical != 0) free_block(physical);
+    }
+    if (file.indirect_block) free_block(file.indirect_block);
+    if (file.doubly_indirect_block) {
+        uint32_t pointers = fs.block_size / (uint32_t)sizeof(uint32_t);
+        uint32_t indirect_pointers[EXT2_MAX_BLOCK_SIZE / sizeof(uint32_t)];
+        if (ext2_read_block(file.doubly_indirect_block, block_buffer) == 0) {
+            memcpy_safe(indirect_pointers, block_buffer, fs.block_size);
+            for (uint32_t index = 0; index < pointers; index++) {
+                if (indirect_pointers[index]) free_block(indirect_pointers[index]);
+            }
+        }
+        free_block(file.doubly_indirect_block);
+    }
+
+    memset_safe(&file, 0, sizeof(file));
+    ext2_write_inode((uint32_t)file_inode_num, &file);
+    free_inode((uint32_t)file_inode_num);
+
+    return 0;
+}
+

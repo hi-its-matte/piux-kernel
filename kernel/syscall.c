@@ -56,6 +56,7 @@ void syscall_dispatch(syscall_registers_t *registers) {
             result = 0;
             break;
         case SYS_EXIT:
+            if (from_user) process_exit_user((int)registers->ebx);
             process_exit((int)registers->ebx);
             result = 0;
             break;

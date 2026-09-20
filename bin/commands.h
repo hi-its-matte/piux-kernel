@@ -23,6 +23,9 @@ extern void cmd_shutdown(const char *param, void (*vga_puts)(const char*), void 
 extern void cmd_reboot(const char *param, void (*vga_puts)(const char*), void (*vga_putc)(char));
 extern void cmd_pwm(const char *param, void (*vga_puts)(const char*), void (*vga_putc)(char));
 extern void cmd_top(const char *param, void (*vga_puts)(const char*), void (*vga_putc)(char));
+extern void cmd_run(const char *param, void (*vga_puts)(const char*), void (*vga_putc)(char));
+extern void cmd_net(const char *param, void (*vga_puts)(const char*), void (*vga_putc)(char));
+extern void cmd_pix(const char *param, void (*vga_puts)(const char*), void (*vga_putc)(char));
 
 static command_t commands[] = {
     { "help", cmd_help },
@@ -41,6 +44,9 @@ static command_t commands[] = {
     { "pwm", cmd_pwm },
     { "pmw", cmd_pwm },
     { "top", cmd_top },
+    { "run", cmd_run },
+    { "net", cmd_net },
+    { "pix", cmd_pix },
     { 0, 0 }
 };
 

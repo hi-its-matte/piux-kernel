@@ -1,0 +1,228 @@
+#include <stdint.h>
+#include "../kernel/rtl8139.h"
+#include "../kernel/net.h"
+#include "../kernel/ip.h"
+#include "../kernel/arp.h"
+#include "../kernel/icmp.h"
+#include "../kernel/udp.h"
+#include "../kernel/http.h"
+#include "../kernel/vfs.h"
+
+typedef void (*vga_puts_t)(const char*);
+typedef void (*vga_putc_t)(char);
+
+static void print_hex_byte(uint8_t value, vga_putc_t putc) {
+    static const char digits[] = "0123456789abcdef";
+    putc(digits[(value >> 4) & 0x0F]);
+    putc(digits[value & 0x0F]);
+}
+
+static void print_mac(const uint8_t mac[6], vga_putc_t putc) {
+    for (int index = 0; index < 6; index++) {
+        print_hex_byte(mac[index], putc);
+        if (index < 5) putc(':');
+    }
+}
+
+static void print_ip(uint32_t address, vga_puts_t vga_puts) {
+    char text[16];
+    net_format_ip(address, text);
+    vga_puts(text);
+}
+
+static uint16_t string_length(const char *text) {
+    uint16_t length = 0;
+    while (text[length]) length++;
+    return length;
+}
+
+/* Splits param on spaces into up to max_tokens words of at most 63 chars each. */
+static int split_tokens(const char *input, char tokens[][64], int max_tokens) {
+    int count = 0;
+    int index = 0;
+    while (input[index] && count < max_tokens) {
+        int length = 0;
+        while (input[index] == ' ') index++;
+        if (!input[index]) break;
+        while (input[index] && input[index] != ' ' && length < 63) tokens[count][length++] = input[index++];
+        tokens[count][length] = '\0';
+        count++;
+    }
+    return count;
+}
+
+static int match(const char *text, const char *word) {
+    int index = 0;
+    while (text[index] && word[index] && text[index] == word[index]) index++;
+    return text[index] == '\0' && word[index] == '\0';
+}
+
+static void print_u32(uint32_t value, vga_putc_t putc) {
+    char digits[11];
+    int length = 0;
+    if (value == 0) {
+        putc('0');
+        return;
+    }
+    while (value > 0) {
+        digits[length++] = (char)('0' + value % 10);
+        value /= 10;
+    }
+    while (length > 0) putc(digits[--length]);
+}
+
+static void show_status(vga_puts_t vga_puts, vga_putc_t vga_putc) {
+    uint8_t mac[6];
+
+    if (!rtl8139_is_ready()) {
+        vga_puts("No network interface detected\n");
+        return;
+    }
+
+    rtl8139_get_mac(mac);
+    vga_puts("RTL8139 network interface ready\n");
+    vga_puts("MAC address: ");
+    print_mac(mac, vga_putc);
+    vga_putc('\n');
+    vga_puts("IP address:  ");
+    print_ip(ip_get_local_ip(), vga_puts);
+    vga_putc('\n');
+    vga_puts("Netmask:     ");
+    print_ip(ip_get_netmask(), vga_puts);
+    vga_putc('\n');
+    vga_puts("Gateway:     ");
+    print_ip(ip_get_gateway(), vga_puts);
+    vga_putc('\n');
+    vga_puts("\nUsage:\n");
+    vga_puts("  net config <ip> <netmask> <gateway>\n");
+    vga_puts("  net arp <ip>\n");
+    vga_puts("  net ping <ip>\n");
+    vga_puts("  net udp <ip> <port> <text>\n");
+    vga_puts("  net get <ip> <port> <path> <output-file>   (plain HTTP/1.0 GET)\n");
+    vga_puts("  net send <text>   (raw broadcast diagnostic frame)\n");
+}
+
+void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
+    char tokens[6][64];
+    int count;
+
+    if (param[0] == '\0') {
+        show_status(vga_puts, vga_putc);
+        return;
+    }
+
+    if (!rtl8139_is_ready()) {
+        vga_puts("No network interface detected\n");
+        return;
+    }
+
+    count = split_tokens(param, tokens, 6);
+    if (count == 0) {
+        show_status(vga_puts, vga_putc);
+        return;
+    }
+
+    if (match(tokens[0], "config") && count == 4) {
+        uint32_t address = net_parse_ip(tokens[1]);
+        uint32_t netmask = net_parse_ip(tokens[2]);
+        uint32_t gateway = net_parse_ip(tokens[3]);
+        ip_set_config(address, netmask, gateway);
+        vga_puts("Network configuration updated\n");
+        return;
+    }
+
+    if (match(tokens[0], "arp") && count == 2) {
+        uint8_t mac[6];
+        uint32_t target = net_parse_ip(tokens[1]);
+        if (arp_resolve(target, mac) < 0) {
+            vga_puts("No ARP reply (timeout)\n");
+            return;
+        }
+        vga_puts(tokens[1]);
+        vga_puts(" is at ");
+        print_mac(mac, vga_putc);
+        vga_putc('\n');
+        return;
+    }
+
+    if (match(tokens[0], "ping") && count == 2) {
+        uint32_t target = net_parse_ip(tokens[1]);
+        icmp_send_echo_request(target, 1, 1);
+        if (icmp_wait_echo_reply(500000) == 0) {
+            vga_puts("Reply from ");
+            vga_puts(tokens[1]);
+            vga_putc('\n');
+        } else {
+            vga_puts("Request timed out\n");
+        }
+        return;
+    }
+
+    if (match(tokens[0], "udp") && count == 4) {
+        uint32_t target = net_parse_ip(tokens[1]);
+        uint16_t port = 0;
+        for (int index = 0; tokens[2][index]; index++) port = (uint16_t)(port * 10 + (tokens[2][index] - '0'));
+        if (udp_send(target, port, 5000, tokens[3], string_length(tokens[3])) < 0) {
+            vga_puts("Failed to send UDP datagram\n");
+        } else {
+            vga_puts("UDP datagram sent\n");
+        }
+        return;
+    }
+
+    if (match(tokens[0], "get") && count == 5) {
+        uint32_t target = net_parse_ip(tokens[1]);
+        uint16_t port = 0;
+        int output_fd;
+        int bytes;
+
+        for (int index = 0; tokens[2][index]; index++) port = (uint16_t)(port * 10 + (tokens[2][index] - '0'));
+
+        output_fd = vfs_open(tokens[4], VFS_O_WRITE | VFS_O_CREATE);
+        if (output_fd < 0) {
+            vga_puts("Cannot create output file\n");
+            return;
+        }
+
+        bytes = http_get_to_fd(target, port, tokens[3], tokens[1], output_fd);
+        vfs_close(output_fd);
+
+        if (bytes < 0) {
+            vga_puts("HTTP GET failed (no TCP connection)\n");
+            return;
+        }
+
+        vga_puts("Downloaded ");
+        print_u32((uint32_t)bytes, vga_putc);
+        vga_puts(" bytes to ");
+        vga_puts(tokens[4]);
+        vga_putc('\n');
+        return;
+    }
+
+    if (tokens[0][0] == 's' && tokens[0][1] == 'e' && tokens[0][2] == 'n' && tokens[0][3] == 'd' && param[4] == ' ') {
+        const char *payload = param + 5;
+        uint8_t frame[1514];
+        uint8_t mac[6];
+        uint16_t payload_length = string_length(payload);
+        uint16_t frame_length;
+
+        if (payload_length > sizeof(frame) - 14) payload_length = sizeof(frame) - 14;
+        for (int index = 0; index < 6; index++) frame[index] = 0xFF;
+        rtl8139_get_mac(mac);
+        for (int index = 0; index < 6; index++) frame[6 + index] = mac[index];
+        frame[12] = 0x88;
+        frame[13] = 0xB5; /* IEEE 802 experimental ethertype, used here as a raw test frame marker */
+        for (uint16_t index = 0; index < payload_length; index++) frame[14 + index] = (uint8_t)payload[index];
+
+        frame_length = (uint16_t)(14 + payload_length);
+        if (frame_length < 60) frame_length = 60;
+
+        if (rtl8139_send(frame, frame_length) < 0) vga_puts("Failed to send frame\n");
+        else vga_puts("Raw test frame sent\n");
+        return;
+    }
+
+    vga_puts("Usage: net [config <ip> <mask> <gw> | arp <ip> | ping <ip> | udp <ip> <port> <text> | get <ip> <port> <path> <file> | send <text>]\n");
+}
+

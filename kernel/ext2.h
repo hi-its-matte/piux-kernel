@@ -137,5 +137,6 @@ int ext2_create_directory_by_path(const char *path);
 int ext2_write_file(uint32_t inode_num, const char *buffer, uint32_t size);
 int ext2_write_file_by_name(const char *filename, const char *buffer, uint32_t size);
 int ext2_write_file_by_path(const char *path, const char *buffer, uint32_t size);
+int ext2_delete_file_by_path(const char *path);
 
 #endif
