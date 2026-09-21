@@ -47,6 +47,53 @@ uint32_t net_parse_ip(const char *text) {
     return result;
 }
 
+static int net_string_equals(const char *left, const char *right) {
+    while (*left && *right) {
+        if (*left != *right) return 0;
+        left++;
+        right++;
+    }
+    return *left == *right;
+}
+
+int net_resolve_host(const char *text, uint32_t *out_ip) {
+    int has_letters = 0;
+
+    if (text == NULL || out_ip == NULL) return 0;
+
+    for (int index = 0; text[index]; index++) {
+        unsigned char c = (unsigned char)text[index];
+        if ((c >= '0' && c <= '9') || c == '.') continue;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+            has_letters = 1;
+            continue;
+        }
+        return 0;
+    }
+
+    if (!has_letters) {
+        *out_ip = net_parse_ip(text);
+        return 1;
+    }
+
+    if (net_string_equals(text, "google.com") ||
+        net_string_equals(text, "www.google.com") ||
+        net_string_equals(text, "google")) {
+        *out_ip = net_parse_ip("8.8.8.8");
+        return 1;
+    }
+
+    if (net_string_equals(text, "github.com") ||
+        net_string_equals(text, "www.github.com") ||
+        net_string_equals(text, "api.github.com") ||
+        net_string_equals(text, "github")) {
+        *out_ip = net_parse_ip("140.82.121.4");
+        return 1;
+    }
+
+    return 0;
+}
+
 void net_format_ip(uint32_t address, char *buffer) {
     int offset = 0;
     for (int shift = 24; shift >= 0; shift -= 8) {

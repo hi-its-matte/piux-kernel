@@ -36,6 +36,11 @@ static uint16_t string_length(const char *text) {
     return length;
 }
 
+static void append_str(char *dest, int *length, const char *src) {
+    while (*src) dest[(*length)++] = *src++;
+    dest[*length] = '\0';
+}
+
 /* Splits param on spaces into up to max_tokens words of at most 63 chars each. */
 static int split_tokens(const char *input, char tokens[][64], int max_tokens) {
     int count = 0;
@@ -55,6 +60,16 @@ static int match(const char *text, const char *word) {
     int index = 0;
     while (text[index] && word[index] && text[index] == word[index]) index++;
     return text[index] == '\0' && word[index] == '\0';
+}
+
+static int resolve_target(const char *host, uint32_t *target, vga_puts_t vga_puts, vga_putc_t vga_putc) {
+    if (!net_resolve_host(host, target)) {
+        vga_puts("Unknown host: ");
+        vga_puts(host);
+        vga_putc('\n');
+        return 0;
+    }
+    return 1;
 }
 
 static void print_u32(uint32_t value, vga_putc_t putc) {
@@ -95,11 +110,41 @@ static void show_status(vga_puts_t vga_puts, vga_putc_t vga_putc) {
     vga_putc('\n');
     vga_puts("\nUsage:\n");
     vga_puts("  net config <ip> <netmask> <gateway>\n");
-    vga_puts("  net arp <ip>\n");
-    vga_puts("  net ping <ip>\n");
-    vga_puts("  net udp <ip> <port> <text>\n");
-    vga_puts("  net get <ip> <port> <path> <output-file>   (plain HTTP/1.0 GET)\n");
+    vga_puts("  net arp <host-or-ip>\n");
+    vga_puts("  net ping <host-or-ip>\n");
+    vga_puts("  net udp <host-or-ip> <port> <text>\n");
+    vga_puts("  net get <host-or-ip> <port> <path> <output-file>   (plain HTTP/1.0 GET)\n");
+    vga_puts("  net fetch <host> <port> <path>            (show HTTP response body)\n");
+    vga_puts("  net search <term> [term2 ...]             (Google-like GET query)\n");
     vga_puts("  net send <text>   (raw broadcast diagnostic frame)\n");
+}
+
+static int fetch_response_body(uint32_t target, uint16_t port, const char *host, const char *path, char *buffer, uint32_t buffer_size) {
+    const char *temp_path = "/tmp/http_fetch.txt";
+    int fd;
+    int bytes;
+
+    fd = vfs_open(temp_path, VFS_O_WRITE | VFS_O_CREATE);
+    if (fd < 0) return -1;
+    bytes = http_get_to_fd(target, port, path, host, fd);
+    vfs_close(fd);
+    if (bytes <= 0) return -1;
+
+    fd = vfs_open(temp_path, VFS_O_READ);
+    if (fd < 0) return -1;
+    bytes = vfs_read(fd, buffer, buffer_size - 1);
+    vfs_close(fd);
+    if (bytes < 0) return -1;
+    buffer[bytes] = '\0';
+    return bytes;
+}
+
+static void print_http_body(const char *text, vga_putc_t putc) {
+    int index = 0;
+    while (text[index] != '\0') {
+        putc(text[index]);
+        index++;
+    }
 }
 
 void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
@@ -133,7 +178,8 @@ void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
 
     if (match(tokens[0], "arp") && count == 2) {
         uint8_t mac[6];
-        uint32_t target = net_parse_ip(tokens[1]);
+        uint32_t target;
+        if (!resolve_target(tokens[1], &target, vga_puts, vga_putc)) return;
         if (arp_resolve(target, mac) < 0) {
             vga_puts("No ARP reply (timeout)\n");
             return;
@@ -146,7 +192,8 @@ void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
     }
 
     if (match(tokens[0], "ping") && count == 2) {
-        uint32_t target = net_parse_ip(tokens[1]);
+        uint32_t target;
+        if (!resolve_target(tokens[1], &target, vga_puts, vga_putc)) return;
         icmp_send_echo_request(target, 1, 1);
         if (icmp_wait_echo_reply(500000) == 0) {
             vga_puts("Reply from ");
@@ -159,7 +206,8 @@ void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
     }
 
     if (match(tokens[0], "udp") && count == 4) {
-        uint32_t target = net_parse_ip(tokens[1]);
+        uint32_t target;
+        if (!resolve_target(tokens[1], &target, vga_puts, vga_putc)) return;
         uint16_t port = 0;
         for (int index = 0; tokens[2][index]; index++) port = (uint16_t)(port * 10 + (tokens[2][index] - '0'));
         if (udp_send(target, port, 5000, tokens[3], string_length(tokens[3])) < 0) {
@@ -171,7 +219,8 @@ void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
     }
 
     if (match(tokens[0], "get") && count == 5) {
-        uint32_t target = net_parse_ip(tokens[1]);
+        uint32_t target;
+        if (!resolve_target(tokens[1], &target, vga_puts, vga_putc)) return;
         uint16_t port = 0;
         int output_fd;
         int bytes;
@@ -200,6 +249,57 @@ void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
         return;
     }
 
+    if (match(tokens[0], "fetch") && count == 4) {
+        uint32_t target;
+        uint16_t port = 0;
+        char buffer[4096];
+        int bytes;
+
+        if (!resolve_target(tokens[1], &target, vga_puts, vga_putc)) return;
+        for (int index = 0; tokens[2][index]; index++) port = (uint16_t)(port * 10 + (tokens[2][index] - '0'));
+
+        bytes = fetch_response_body(target, port, tokens[1], tokens[3], buffer, sizeof(buffer));
+        if (bytes < 0) {
+            vga_puts("Fetch failed\n");
+            return;
+        }
+
+        vga_puts("HTTP response:\n");
+        print_http_body(buffer, vga_putc);
+        vga_putc('\n');
+        return;
+    }
+
+    if (match(tokens[0], "search") && count >= 2) {
+        uint32_t target;
+        char path[256];
+        int length = 0;
+        char buffer[4096];
+        int bytes;
+
+        if (!resolve_target("google.com", &target, vga_puts, vga_putc)) return;
+        append_str(path, &length, "/search?q=");
+        for (int i = 1; i < count; i++) {
+            if (i > 1) append_str(path, &length, "+");
+            for (int j = 0; tokens[i][j]; j++) {
+                if (tokens[i][j] == ' ') path[length++] = '+';
+                else path[length++] = tokens[i][j];
+            }
+        }
+        path[length] = '\0';
+
+        bytes = fetch_response_body(target, 80, "google.com", path, buffer, sizeof(buffer));
+        if (bytes < 0) {
+            vga_puts("Search request failed\n");
+            return;
+        }
+
+        vga_puts("Google-like response:\n");
+        print_http_body(buffer, vga_putc);
+        vga_putc('\n');
+        return;
+    }
+
     if (tokens[0][0] == 's' && tokens[0][1] == 'e' && tokens[0][2] == 'n' && tokens[0][3] == 'd' && param[4] == ' ') {
         const char *payload = param + 5;
         uint8_t frame[1514];
@@ -223,6 +323,6 @@ void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
         return;
     }
 
-    vga_puts("Usage: net [config <ip> <mask> <gw> | arp <ip> | ping <ip> | udp <ip> <port> <text> | get <ip> <port> <path> <file> | send <text>]\n");
+    vga_puts("Usage: net [config <ip> <mask> <gw> | arp <host-or-ip> | ping <host-or-ip> | udp <host-or-ip> <port> <text> | get <host-or-ip> <port> <path> <file> | fetch <host> <port> <path> | search <term> ... | send <text>]\n");
 }
 
