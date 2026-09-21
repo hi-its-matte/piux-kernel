@@ -1,6 +1,8 @@
 ![Piux Banner](banner.png)
 # Piux Kernel
 
+[Thank you, contributors! <3](THANK-YOU-CONTRIBUTORS.md)
+
 Run `fast-all.sh` for the optional interactive TUI used to build and run Piux.
 
 Piux is a small 32-bit x86 experimental operating system and kernel environment bootable with GRUB Multiboot1. It is built using NASM, freestanding C, GNU `ld`, and a custom linker script.
