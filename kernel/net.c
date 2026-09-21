@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stddef.h>
 #include "net.h"
 
 /* x86 is little-endian; network byte order is big-endian, so this is
