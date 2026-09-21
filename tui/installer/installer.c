@@ -132,6 +132,29 @@ static int valid_username(const char *username) {
     return 1;
 }
 
+static int select_keyboard_layout(void) {
+    const char *layouts[] = { "US QWERTY", "Italian QWERTY" };
+    const char *layout_text;
+    char config[32];
+    int choice = choose(layouts, 2, "Step 1 of 3: Keyboard layout");
+    int offset = 0;
+    if (choice < 0) return -1;
+    keyboard_set_layout(choice == 1 ? KEYBOARD_LAYOUT_IT : KEYBOARD_LAYOUT_US);
+    layout_text = choice == 1 ? "layout=it\n" : "layout=us\n";
+    if (ensure_directory("/.config") < 0) return -1;
+    while (layout_text[offset]) {
+        config[offset] = layout_text[offset];
+        offset++;
+    }
+    config[offset] = '\0';
+    if (write_config("/.config/keyboard.conf", config) < 0) return -1;
+    clear_screen();
+    print_text(choice == 1 ? "Keyboard layout: Italian QWERTY\n\n" : "Keyboard layout: US QWERTY\n\n");
+    print_text("Press Enter to continue.\n");
+    keyboard_read_char();
+    return 0;
+}
+
 static int create_system_tree(void) {
     static const char *directories[] = {
         "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/mnt",
@@ -150,7 +173,7 @@ static int create_system_tree(void) {
 
 static int install_system(void) {
     clear_screen();
-    print_text("Step 1 of 3: Disk and system setup\n\nCreating Unix filesystem tree...\n");
+    print_text("Step 2 of 3: Disk and system setup\n\nCreating Unix filesystem tree...\n");
     if (create_system_tree() < 0) {
         print_text("Installation failed: cannot write the Ext2 filesystem.\n");
         print_text("Press Enter to return.");
@@ -171,7 +194,7 @@ static int create_user_step(void) {
     const char *sudo_items[] = { "Yes, make this user a sudoer", "No, standard user" };
     int sudoer;
     clear_screen();
-    print_text("Step 2 of 3: Create the first user\n\nUsername: ");
+    print_text("Step 3 of 3: Create the first user\n\nUsername: ");
     if (read_line(username, sizeof(username), 0) == 0 || !valid_username(username)) {
         print_text("Invalid username. Press Enter to return.");
         keyboard_read_char();
@@ -239,6 +262,7 @@ int installer_run(installer_clear_t clear, installer_puts_t puts,
     print_char = putc;
     (void)power_off;
     reboot_system = reboot;
+    if (select_keyboard_layout() < 0) return 0;
     if (install_system() < 0) return 0;
     if (create_user_step() < 0) return 0;
     complete_installation();

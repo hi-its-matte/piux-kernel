@@ -426,6 +426,7 @@ void kernel_main(uint32_t magic, uint32_t addr) {
     gdt_init();
     ramfs_init();
     ext2_mount();
+    keyboard_load_layout_from_config();
     vfs_init();
     process_init();
     syscall_init();
