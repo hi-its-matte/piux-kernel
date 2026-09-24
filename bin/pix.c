@@ -4,16 +4,17 @@
 #include "../kernel/vfs.h"
 #include "../kernel/ext2.h"
 #include "../kernel/http.h"
+#include "../kernel/tls.h"
 
 typedef void (*vga_puts_t)(const char*);
 typedef void (*vga_putc_t)(char);
 
-/* Points at a plain HTTP mirror of https://github.com/projectpiux/pix-pkgmanager,
-   serving <pkg>/<pkg>.elf and <pkg>/info under /pkgs. Real github.com cannot be
-   used here: it requires DNS and HTTPS, neither of which Piux implements yet. */
+/* GitHub tree URL for packages; downloads use its raw.githubusercontent.com equivalent. */
+#define PIX_REPOSITORY "https://github.com/projectpiux/pix-pkgmanager/tree/main/pkgs"
+#define PIX_HOST "raw.githubusercontent.com"
+#define PIX_PORT 443
+#define PIX_FALLBACK_IP "185.199.109.133"
 static uint32_t repo_ip;
-static uint16_t repo_port;
-static int repo_configured;
 
 static int split_tokens(const char *input, char tokens[][64], int max_tokens) {
     int count = 0;
@@ -40,10 +41,9 @@ static void append_str(char *dest, int *length, const char *src) {
     dest[*length] = '\0';
 }
 
-static void build_pkg_filename(char *out, const char *pkg) {
+static void build_pkg_basename(char *out, const char *pkg) {
     int length = 0;
     append_str(out, &length, pkg);
-    append_str(out, &length, ".elf");
 }
 
 static void build_remote_path(char *out, const char *pkg, const char *filename) {
@@ -68,22 +68,46 @@ static void build_local_path(char *out, const char *pkg, const char *filename) {
     append_str(out, &length, filename);
 }
 
+static int valid_package_name(const char *pkg) {
+    int length = 0;
+    for (int index = 0; pkg[index]; index++) {
+        char character = pkg[index];
+        length++;
+        if (length > 48) return 0;
+        if (!((character >= 'a' && character <= 'z') ||
+              (character >= 'A' && character <= 'Z') ||
+              (character >= '0' && character <= '9') || character == '-' || character == '_')) return 0;
+    }
+    return length > 0;
+}
+
+static void print_u32(uint32_t value, vga_putc_t vga_putc) {
+    char digits[10];
+    int length = 0;
+    if (value == 0) {
+        vga_putc('0');
+        return;
+    }
+    while (value > 0) {
+        digits[length++] = (char)('0' + value % 10);
+        value /= 10;
+    }
+    while (length > 0) vga_putc(digits[--length]);
+}
+
 static void show_usage(vga_puts_t vga_puts) {
-    vga_puts("Usage: pix [config <ip> <port> | install <pkg> | remove <pkg> | info <pkg> | where <pkg>]\n");
+    vga_puts("Usage: pix [install <pkg> | remove <pkg> | info <pkg> | where <pkg>]\n");
 }
 
 static int fetch_package_file(const char *pkg, const char *filename, const char *local_path) {
     char remote_path[128];
-    char host[16];
     int fd;
     int bytes;
 
     build_remote_path(remote_path, pkg, filename);
-    net_format_ip(repo_ip, host);
-
     fd = vfs_open(local_path, VFS_O_WRITE | VFS_O_CREATE);
     if (fd < 0) return -1;
-    bytes = http_get_to_fd(repo_ip, repo_port, remote_path, host, fd);
+    bytes = https_get_to_fd(repo_ip, PIX_PORT, remote_path, PIX_HOST, fd);
     vfs_close(fd);
     return bytes;
 }
@@ -100,16 +124,6 @@ void cmd_pix(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
     count = split_tokens(param, tokens, 3);
     if (count == 0) {
         show_usage(vga_puts);
-        return;
-    }
-
-    if (match(tokens[0], "config") && count == 3) {
-        uint16_t port = 0;
-        for (int index = 0; tokens[2][index]; index++) port = (uint16_t)(port * 10 + (tokens[2][index] - '0'));
-        repo_ip = net_parse_ip(tokens[1]);
-        repo_port = port;
-        repo_configured = 1;
-        vga_puts("Pix repository configured\n");
         return;
     }
 
@@ -132,30 +146,28 @@ void cmd_pix(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
     }
 
     if (match(tokens[0], "where") && count == 2) {
-        char local_dir[80];
-        build_local_dir(local_dir, tokens[1]);
-        if (ext2_find_inode_by_path(local_dir) < 0) {
+        char package_path[80];
+        build_local_path(package_path, tokens[1], tokens[1]);
+        if (ext2_find_inode_by_path(package_path) < 0) {
             vga_puts("Package '");
             vga_puts(tokens[1]);
             vga_puts("' is not installed\n");
             return;
         }
-        vga_puts(local_dir);
+        vga_puts(package_path);
         vga_putc('\n');
         return;
     }
 
     if (match(tokens[0], "remove") && count == 2) {
-        char elf_filename[68];
-        char elf_local[80];
+        char package_path[80];
         char info_local[80];
         int removed_any = 0;
 
-        build_pkg_filename(elf_filename, tokens[1]);
-        build_local_path(elf_local, tokens[1], elf_filename);
+        build_local_path(package_path, tokens[1], tokens[1]);
         build_local_path(info_local, tokens[1], "info");
 
-        if (ext2_delete_file_by_path(elf_local) == 0) removed_any = 1;
+        if (ext2_delete_file_by_path(package_path) == 0) removed_any = 1;
         if (ext2_delete_file_by_path(info_local) == 0) removed_any = 1;
 
         if (!removed_any) {
@@ -172,21 +184,23 @@ void cmd_pix(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
 
     if (match(tokens[0], "install") && count == 2) {
         char local_dir[80];
-        char elf_filename[68];
+        char elf_basename[68];
         char elf_local[80];
         char info_local[80];
         int elf_bytes;
         int info_bytes;
+        uint32_t target_ip;
 
-        if (!repo_configured) {
-            vga_puts("Pix repository not configured. Use: pix config <ip> <port>\n");
-            vga_puts("(this must be a plain HTTP mirror of the repo layout; real github.com needs DNS+HTTPS, not supported yet)\n");
+        if (!valid_package_name(tokens[1])) {
+            vga_puts("Invalid package name\n");
             return;
         }
         if (!rtl8139_is_ready()) {
             vga_puts("No network interface detected\n");
             return;
         }
+        if (!net_resolve_host(PIX_HOST, &target_ip)) target_ip = net_parse_ip(PIX_FALLBACK_IP);
+        repo_ip = target_ip;
 
         if (ext2_find_inode_by_path("/pkgs") < 0) ext2_create_directory_by_path("/pkgs");
         build_local_dir(local_dir, tokens[1]);
@@ -195,23 +209,35 @@ void cmd_pix(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
             return;
         }
 
-        build_pkg_filename(elf_filename, tokens[1]);
-        build_local_path(elf_local, tokens[1], elf_filename);
+        build_pkg_basename(elf_basename, tokens[1]);
+        build_local_path(elf_local, tokens[1], tokens[1]);
         build_local_path(info_local, tokens[1], "info");
 
-        elf_bytes = fetch_package_file(tokens[1], elf_filename, elf_local);
+        elf_bytes = fetch_package_file(tokens[1], elf_basename, elf_local);
         info_bytes = fetch_package_file(tokens[1], "info", info_local);
 
-        if (elf_bytes <= 0 || info_bytes <= 0) {
-            vga_puts("Package '");
-            vga_puts(tokens[1]);
-            vga_puts("' not found or download failed\n");
+        if (elf_bytes <= 0) {
+            if (elf_bytes < -1000) {
+                vga_puts("HTTPS failed, BearSSL error ");
+                print_u32((uint32_t)(-elf_bytes - 1000), vga_putc);
+                vga_putc('\n');
+            } else {
+                vga_puts("Package executable not found in ");
+                vga_puts(PIX_REPOSITORY);
+                vga_putc('\n');
+            }
+            return;
+        }
+        if (info_bytes <= 0) {
+            vga_puts("Package info not found in ");
+            vga_puts(PIX_REPOSITORY);
+            vga_putc('\n');
             return;
         }
 
         vga_puts("Installed '");
         vga_puts(tokens[1]);
-        vga_puts("' to ");
+        vga_puts(" to ");
         vga_puts(local_dir);
         vga_putc('\n');
         return;

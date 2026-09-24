@@ -108,12 +108,16 @@ static void show_status(vga_puts_t vga_puts, vga_putc_t vga_putc) {
     vga_puts("Gateway:     ");
     print_ip(ip_get_gateway(), vga_puts);
     vga_putc('\n');
+    vga_puts("DNS server:  ");
+    print_ip(ip_get_dns(), vga_puts);
+    vga_putc('\n');
     vga_puts("\nUsage:\n");
     vga_puts("  net config <ip> <netmask> <gateway>\n");
     vga_puts("  net arp <host-or-ip>\n");
     vga_puts("  net ping <host-or-ip>\n");
     vga_puts("  net udp <host-or-ip> <port> <text>\n");
     vga_puts("  net get <host-or-ip> <port> <path> <output-file>   (plain HTTP/1.0 GET)\n");
+    vga_puts("  net https <host-or-ip> <path> <output-file>        (HTTPS/TLS GET)\n");
     vga_puts("  net fetch <host> <port> <path>            (show HTTP response body)\n");
     vga_puts("  net search <term> [term2 ...]             (Google-like GET query)\n");
     vga_puts("  net send <text>   (raw broadcast diagnostic frame)\n");
@@ -245,6 +249,30 @@ void cmd_net(const char *param, vga_puts_t vga_puts, vga_putc_t vga_putc) {
         print_u32((uint32_t)bytes, vga_putc);
         vga_puts(" bytes to ");
         vga_puts(tokens[4]);
+        vga_putc('\n');
+        return;
+    }
+
+    if (match(tokens[0], "https") && count == 4) {
+        uint32_t target;
+        int output_fd;
+        int bytes;
+        if (!resolve_target(tokens[1], &target, vga_puts, vga_putc)) return;
+        output_fd = vfs_open(tokens[3], VFS_O_WRITE | VFS_O_CREATE);
+        if (output_fd < 0) {
+            vga_puts("Cannot create output file\n");
+            return;
+        }
+        bytes = https_get_to_fd(target, 443, tokens[2], tokens[1], output_fd);
+        vfs_close(output_fd);
+        if (bytes < 0) {
+            vga_puts("HTTPS GET failed (TLS or certificate validation error)\n");
+            return;
+        }
+        vga_puts("Downloaded ");
+        print_u32((uint32_t)bytes, vga_putc);
+        vga_puts(" bytes to ");
+        vga_puts(tokens[3]);
         vga_putc('\n');
         return;
     }

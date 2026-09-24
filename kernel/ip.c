@@ -28,6 +28,7 @@ typedef struct __attribute__((packed)) {
 static uint32_t local_ip = 0x0A00020FU;      /* 10.0.2.15 */
 static uint32_t local_netmask = 0xFFFFFF00U; /* 255.255.255.0 */
 static uint32_t local_gateway = 0x0A000202U; /* 10.0.2.2 */
+static uint32_t local_dns = 0x0A000203U;     /* 10.0.2.3 */
 static uint16_t next_identification = 1;
 
 void ip_set_config(uint32_t new_ip, uint32_t new_netmask, uint32_t new_gateway) {
@@ -36,9 +37,12 @@ void ip_set_config(uint32_t new_ip, uint32_t new_netmask, uint32_t new_gateway) 
     local_gateway = new_gateway;
 }
 
+void ip_set_dns(uint32_t dns_server) { local_dns = dns_server; }
+
 uint32_t ip_get_local_ip(void) { return local_ip; }
 uint32_t ip_get_netmask(void) { return local_netmask; }
 uint32_t ip_get_gateway(void) { return local_gateway; }
+uint32_t ip_get_dns(void) { return local_dns; }
 
 int ip_send(uint32_t destination_ip, uint8_t protocol, const void *payload, uint16_t length) {
     uint8_t packet[IP_MAX_PACKET];
@@ -62,8 +66,12 @@ int ip_send(uint32_t destination_ip, uint8_t protocol, const void *payload, uint
 
     for (uint16_t index = 0; index < length; index++) packet[sizeof(ip_header_t) + index] = ((const uint8_t *)payload)[index];
 
-    next_hop = ((destination_ip ^ local_ip) & local_netmask) == 0 ? destination_ip : local_gateway;
-    if (arp_resolve(next_hop, destination_mac) < 0) return -1;
+    if (destination_ip == 0xFFFFFFFFU) {
+        for (int index = 0; index < 6; index++) destination_mac[index] = 0xFF;
+    } else {
+        next_hop = ((destination_ip ^ local_ip) & local_netmask) == 0 ? destination_ip : local_gateway;
+        if (arp_resolve(next_hop, destination_mac) < 0) return -1;
+    }
 
     return eth_send(destination_mac, ETH_TYPE_IPV4, packet, (uint16_t)(sizeof(ip_header_t) + length));
 }
